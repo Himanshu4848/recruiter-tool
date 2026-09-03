@@ -31,19 +31,26 @@ public class EmailService {
     private String resumeFilename;
 
     public String sendEmail(EmailRequest req) throws Exception {
-        Email from    = new Email(senderEmail, "Himanshu Yadav");
-        Email to      = new Email(req.getRecruiterEmail());
-        Content content = new Content("text/html", req.getHtmlBody());
+        Email from = new Email(senderEmail, "Himanshu Yadav");
+        Email to   = new Email(req.getRecruiterEmail());
 
-        Mail mail = new Mail(from, req.getSubject(), to, content);
+        Mail mail = new Mail();
+        mail.setFrom(from);
+        mail.setSubject(req.getSubject());
 
-        // plain text alternative
+        // ✅ add recipient via Personalization
+        Personalization personalization = new Personalization();
+        personalization.addTo(to);
+        mail.addPersonalization(personalization);
+
+        // ✅ plain text MUST come first
         mail.addContent(new Content("text/plain", req.getBody()));
+        // ✅ html comes second
+        mail.addContent(new Content("text/html", req.getHtmlBody()));
 
         // attach resume
         attachResume(mail);
 
-        // unique message id for tracking
         String messageId = "<" + UUID.randomUUID() + "@recruiter-reach>";
 
         SendGrid sg = new SendGrid(sendGridApiKey);
