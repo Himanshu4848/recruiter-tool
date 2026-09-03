@@ -19,17 +19,16 @@ public class EmailController {
     @PostMapping("/send")
     public ResponseEntity<EmailResponse> sendEmail(@RequestBody EmailRequest req) {
         try {
-            String[] result = emailService.sendEmail(req);
-            String messageId     = result[0];
-            String actualSubject = result[1];
+            String messageId = emailService.sendEmail(req);
             return ResponseEntity.ok(
-                    new EmailResponse(true, "Email sent successfully!", messageId, actualSubject)
+                    new EmailResponse(true, "Email sent successfully!", messageId, null)
             );
         } catch (Exception e) {
             return ResponseEntity.internalServerError()
                     .body(new EmailResponse(false, "Failed: " + e.getMessage(), null, null));
         }
     }
+
     // POST /api/email/follow-up
     @PostMapping("/follow-up")
     public ResponseEntity<EmailResponse> sendFollowUp(@RequestBody FollowUpRequest req) {

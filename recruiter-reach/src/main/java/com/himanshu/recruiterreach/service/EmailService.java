@@ -2,78 +2,96 @@ package com.himanshu.recruiterreach.service;
 
 import com.himanshu.recruiterreach.dto.EmailRequest;
 import com.himanshu.recruiterreach.dto.FollowUpRequest;
-import jakarta.mail.internet.MimeMessage;
+import com.sendgrid.*;
+import com.sendgrid.helpers.mail.Mail;
+import com.sendgrid.helpers.mail.objects.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Base64;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class EmailService {
 
-    private final JavaMailSender mailSender;
+    private final ResumeService resumeService;
 
-    @Value("${app.resume.path}")
-    private String resumePath;
+    @Value("${sendgrid.api.key}")
+    private String sendGridApiKey;
+
+    @Value("${app.sender.email}")
+    private String senderEmail;
 
     @Value("${app.resume.filename}")
     private String resumeFilename;
 
-    @Value("${spring.mail.username}")
-    private String senderEmail;
+    public String sendEmail(EmailRequest req) throws Exception {
+        Email from    = new Email(senderEmail, "Himanshu Yadav");
+        Email to      = new Email(req.getRecruiterEmail());
+        Content content = new Content("text/html", req.getHtmlBody());
 
-    // ─── Send initial email ───────────────────────────────────────────
-    public String[] sendEmail(EmailRequest req) throws Exception {
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+        Mail mail = new Mail(from, req.getSubject(), to, content);
 
-        helper.setFrom(senderEmail);
-        helper.setTo(req.getRecruiterEmail());
-        helper.setSubject(req.getSubject());
-        helper.setText(req.getBody(), req.getHtmlBody());
+        // plain text alternative
+        mail.addContent(new Content("text/plain", req.getBody()));
 
-        // Attach resume
-        File resumeFile = new File(resumePath);
-        if (resumeFile.exists()) {
-            helper.addAttachment(resumeFilename, new FileSystemResource(resumeFile));
+        // attach resume
+        attachResume(mail);
+
+        // unique message id for tracking
+        String messageId = "<" + UUID.randomUUID() + "@recruiter-reach>";
+
+        SendGrid sg = new SendGrid(sendGridApiKey);
+        Request request = new Request();
+        request.setMethod(Method.POST);
+        request.setEndpoint("mail/send");
+        request.setBody(mail.build());
+
+        Response response = sg.api(request);
+
+        if (response.getStatusCode() >= 400) {
+            throw new Exception("SendGrid error: " + response.getBody());
         }
 
-        // ✅ Call saveChanges FIRST so JavaMail finalizes and generates Message-ID
-        message.saveChanges();
-
-        // ✅ Read the ACTUAL Message-ID that will be sent
-        String messageId = message.getMessageID();
-
-        // ✅ Now send — no more regeneration after this
-        mailSender.send(message);
-
-        // Return the real Message-ID
-        return new String[]{messageId, req.getSubject()};
+        return messageId;
     }
 
     public void sendFollowUp(FollowUpRequest req) throws Exception {
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+        Email from    = new Email(senderEmail, "Himanshu Yadav");
+        Email to      = new Email(req.getRecruiterEmail());
+        Content content = new Content("text/plain", req.getBody());
 
-        helper.setFrom(senderEmail);
-        helper.setTo(req.getRecruiterEmail());
+        Mail mail = new Mail(from, "Re: " + req.getOriginalSubject(), to, content);
 
-        // ✅ Subject must match original exactly (Gmail uses this too for threading)
-        helper.setSubject("Re: " + req.getOriginalSubject());
-        helper.setText(req.getBody(), false);
+        SendGrid sg = new SendGrid(sendGridApiKey);
+        Request request = new Request();
+        request.setMethod(Method.POST);
+        request.setEndpoint("mail/send");
+        request.setBody(mail.build());
 
-        // ✅ Set BEFORE saveChanges so they don't get wiped
-        message.setHeader("In-Reply-To", req.getOriginalMessageId());
-        message.setHeader("References", req.getOriginalMessageId());
+        Response response = sg.api(request);
 
-        // ✅ saveChanges after setting headers
-        message.saveChanges();
+        if (response.getStatusCode() >= 400) {
+            throw new Exception("SendGrid error: " + response.getBody());
+        }
+    }
 
-        mailSender.send(message);
+    private void attachResume(Mail mail) throws IOException {
+        String resumePath = resumeService.getResumePath();
+        byte[] fileContent = Files.readAllBytes(Paths.get(resumePath));
+        String encoded = Base64.getEncoder().encodeToString(fileContent);
+
+        Attachments attachment = new Attachments();
+        attachment.setContent(encoded);
+        attachment.setType("application/pdf");
+        attachment.setFilename(resumeFilename);
+        attachment.setDisposition("attachment");
+
+        mail.addAttachments(attachment);
     }
 }
